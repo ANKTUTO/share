@@ -1,27 +1,27 @@
-# High-Performance Screen Sharing Software
+# Screen Share Pro - Multi-User Edition
 
-A blazing-fast, open-source screen sharing solution that achieves consistent 60 FPS streaming using WebRTC and Python. Built for developers who need reliable, low-latency screen sharing without third-party dependencies.
+A high-performance, multi-user screen sharing solution built with Python that works like Google Meet. Test with multiple browsers as different users!
 
 ## 🚀 Features
 
-- **60 FPS Screen Streaming**: Consistent high-framerate capture and streaming
-- **Ultra-Low Latency**: <200ms latency for real-time interaction
-- **WebRTC P2P**: Direct peer-to-peer streaming with fallback STUN servers
-- **Cross-Platform**: Works on Windows, Linux, and macOS
-- **Zero Dependencies**: No cloud services, no proprietary tools
-- **Beautiful UI**: Modern, responsive web interface with real-time stats
-- **Performance Monitoring**: Live FPS, latency, and connection metrics
+- **Multi-User Support**: Multiple users can join the same room
+- **Presenter System**: Only the presenter can share screen (like Google Meet)
+- **Real-Time Chat**: Built-in chat system for all participants
+- **60 FPS Streaming**: High-performance screen capture and streaming
+- **Monitor Selection**: Choose which monitor to share
+- **Quality Controls**: Adjust FPS, quality, and resolution
+- **Cross-Browser**: Works in Chrome, Firefox, Safari, Edge
+- **No Dependencies**: Pure Python with web interface
 
 ## 📋 Requirements
 
 - Python 3.8+
-- Modern web browser with WebRTC support
+- Modern web browser
 - For optimal performance: 4+ GB RAM, multi-core CPU
 
 ## 🔧 Installation
 
-1. **Clone or download** the project files
-2. **Install dependencies**:
+1. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
@@ -30,22 +30,49 @@ A blazing-fast, open-source screen sharing solution that achieves consistent 60 
 
 1. **Start the server**:
    ```bash
-   python main.py
+   python unified_server.py
    ```
 
-2. **Open your browser** and go to:
+2. **Open multiple browser tabs/windows**:
    ```
    http://localhost:8080
    ```
 
-3. **Click "Connect"** to start receiving the screen stream
+3. **Test multi-user functionality**:
+   - Each tab represents a different user
+   - First user becomes presenter automatically
+   - Only presenter can start/stop screen sharing
+   - Other users can request presenter rights
+   - Everyone can use chat
+
+## 🧪 How to Test Multi-User Functionality
+
+### Method 1: Multiple Browser Tabs
+1. Open `http://localhost:8080` in multiple tabs
+2. Each tab acts as a different user
+3. Watch how users appear in the participants list
+
+### Method 2: Different Browsers
+1. Open the URL in Chrome: `http://localhost:8080`
+2. Open the same URL in Firefox: `http://localhost:8080`
+3. Open in Safari, Edge, etc.
+4. Each browser represents a different user
+
+### Method 3: Different Devices (Same Network)
+1. Find your computer's IP address
+2. On other devices, visit: `http://YOUR_IP:8080`
+3. Each device joins as a separate user
+
+### Method 4: Incognito/Private Windows
+1. Open regular browser window
+2. Open incognito/private window
+3. Visit the same URL in both
+4. Each window is treated as different user
 
 ## ⚙️ Configuration Options
 
-### Command Line Arguments
-
 ```bash
-python main.py [options]
+python unified_server.py [options]
 ```
 
 | Option | Default | Description |
@@ -53,26 +80,86 @@ python main.py [options]
 | `--host` | `0.0.0.0` | Server host address |
 | `--port` | `8080` | Server port |
 | `--fps` | `60` | Target frames per second |
-| `--width` | `1280` | Target width resolution |
-| `--height` | `720` | Target height resolution |
-| `--log-level` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `--quality` | `85` | JPEG quality (1-100) |
 
 ### Examples
 
-**High-performance mode** (30 FPS for better stability):
+**High quality mode**:
 ```bash
-python main.py --fps 30 --width 1920 --height 1080
+python unified_server.py --fps 60 --quality 95
 ```
 
-**Low-bandwidth mode**:
+**Performance mode**:
 ```bash
-python main.py --fps 30 --width 640 --height 480
+python unified_server.py --fps 30 --quality 70
 ```
 
-**Debug mode**:
+**Custom port**:
 ```bash
-python main.py --log-level DEBUG
+python unified_server.py --port 9000
 ```
+
+## 🎛️ User Interface Features
+
+### For Presenters
+- **Start/Stop Sharing**: Control screen sharing
+- **Monitor Selection**: Choose which monitor to share
+- **Quality Settings**: Adjust FPS, quality, resolution
+- **Chat**: Communicate with all participants
+
+### For Viewers
+- **Request Presenter**: Ask to become presenter
+- **View Stream**: Watch the shared screen
+- **Chat**: Participate in group chat
+- **Fullscreen**: View stream in fullscreen mode
+
+### For Everyone
+- **Participants List**: See all connected users
+- **Real-time Stats**: FPS, quality, resolution metrics
+- **Chat System**: Group messaging
+- **Responsive Design**: Works on desktop and mobile
+
+## 🔧 Technical Details
+
+### Architecture
+- **Backend**: Python with aiohttp (async web server)
+- **Frontend**: Pure HTML/CSS/JavaScript (no frameworks)
+- **Communication**: WebSockets for real-time messaging
+- **Streaming**: HTTP polling for video frames
+- **Screen Capture**: MSS (Multi-Screen Shot) library
+
+### Performance
+- **Frame Rate**: Up to 60 FPS
+- **Latency**: <200ms on local network
+- **Quality**: Adjustable JPEG compression
+- **Memory**: Efficient frame buffering
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**"Permission denied" errors**:
+- Run with administrator/root privileges
+- Check screen recording permissions (macOS)
+
+**High CPU usage**:
+- Reduce FPS: `--fps 30`
+- Lower quality: `--quality 70`
+- Close unnecessary applications
+
+**Connection issues**:
+- Check firewall settings
+- Try different port: `--port 9000`
+- Test with `localhost` first
+
+**Multiple users not working**:
+- Clear browser cache
+- Try incognito/private windows
+- Use different browsers
+- Check browser console for errors
+
+### Debug Mode
+Enable detailed logging by modifying the logging level in the script.
 
 ## 🌐 Network Setup
 
@@ -80,148 +167,39 @@ python main.py --log-level DEBUG
 Works out of the box on your local network.
 
 ### Internet Access
-For internet streaming, you'll need to configure port forwarding:
+For internet access:
+1. Configure port forwarding on your router
+2. Allow port through firewall
+3. Share your public IP with users
 
-1. **Router Configuration**: Forward port 8080 (or your chosen port) to your computer
-2. **Firewall**: Allow the port through your firewall
-3. **Share your public IP**: Viewers access `http://YOUR_PUBLIC_IP:8080`
+## 🔒 Security Notes
 
-### Security Considerations
-- This software is designed for trusted networks
-- For production use, consider adding authentication
-- Use HTTPS in production environments
+- Designed for trusted networks
+- No built-in authentication (add if needed)
+- Consider HTTPS for production use
+- Screen sharing requires appropriate permissions
 
-## 📊 Performance Optimization
+## 📊 Performance Tips
 
-### System Requirements
-- **CPU**: Multi-core processor (4+ cores recommended)
-- **RAM**: 4+ GB available
-- **Network**: Stable connection with sufficient upload bandwidth
-
-### Optimization Tips
-
-1. **Close unnecessary applications** to free up CPU resources
-2. **Use wired connection** for better stability
-3. **Adjust resolution** if experiencing performance issues
-4. **Monitor stats** using the built-in performance panel
-
-### GPU Acceleration (Optional)
-For NVIDIA GPUs, you can enable hardware encoding:
-```bash
-pip install nvidia-ml-py3
-```
-
-## 🎛️ Viewer Interface
-
-### Controls
-- **Connect/Disconnect**: Start/stop the stream
-- **Toggle Stats**: Show/hide performance metrics
-- **Fullscreen**: Press `F` or click the fullscreen button
-- **Keyboard Shortcuts**:
-  - `F`: Toggle fullscreen
-  - `S`: Toggle stats
-  - `Escape`: Exit fullscreen
-
-### Performance Metrics
-- **FPS**: Current streaming framerate
-- **Resolution**: Stream resolution
-- **Latency**: Round-trip time
-- **Connections**: Number of active viewers
-
-## 🏗️ Architecture
-
-### Core Components
-
-1. **`screen_capture.py`**: High-performance screen capture using MSS
-2. **`webrtc_server.py`**: WebRTC streaming and signaling server
-3. **`main.py`**: CLI interface and application orchestration
-4. **`web/index.html`**: Modern viewer interface
-5. **`web/script.js`**: WebRTC client implementation
-
-### Technical Details
-
-- **Screen Capture**: MSS (Multi-Screen Shot) for fast screen grabbing
-- **Video Processing**: OpenCV for frame processing and resizing
-- **WebRTC**: aiortc for Python WebRTC implementation
-- **Signaling**: WebSocket-based signaling server
-- **Frontend**: Vanilla JavaScript with modern WebRTC APIs
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**"Permission denied" errors**:
-- Run with administrator/root privileges if needed
-- Check screen recording permissions on macOS
-
-**High CPU usage**:
-- Reduce FPS: `--fps 30`
-- Lower resolution: `--width 640 --height 480`
-- Close other applications
-
-**Connection failures**:
-- Check firewall settings
-- Verify port availability
-- Test with `localhost` first
-
-**Poor video quality**:
-- Increase resolution if bandwidth allows
-- Check network stability
-- Monitor performance stats
-
-### Debug Mode
-Enable detailed logging:
-```bash
-python main.py --log-level DEBUG
-```
-
-## 🔄 Development
-
-### File Structure
-```
-├── main.py              # CLI entry point
-├── screen_capture.py    # Screen capture module
-├── webrtc_server.py     # WebRTC server
-├── requirements.txt     # Python dependencies
-├── README.md           # This file
-└── web/
-    ├── index.html      # Viewer interface
-    └── script.js       # WebRTC client
-```
-
-### Extending the Software
-
-**Add authentication**:
-Modify `webrtc_server.py` to add login functionality.
-
-**Multiple monitor support**:
-Extend `screen_capture.py` to capture specific monitors.
-
-**Recording functionality**:
-Add video recording using OpenCV's VideoWriter.
-
-## 📄 License
-
-This project is open-source and available under the MIT License.
+1. **Close unnecessary applications** to free CPU
+2. **Use wired connection** for stability
+3. **Adjust quality settings** based on network
+4. **Monitor system resources** during use
+5. **Test with fewer users** if performance issues occur
 
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+3. Test thoroughly with multiple users
+4. Submit a pull request
 
-## 🆘 Support
+## 📄 License
 
-For issues and questions:
-1. Check the troubleshooting section
-2. Enable debug logging
-3. Check the console for error messages
-4. Create an issue with detailed information
+MIT License - feel free to use and modify!
 
 ---
 
-**Made with ❤️ for the open-source community**
+**Perfect for testing multi-user screen sharing scenarios! 🎉**
 
-*High-performance screen sharing without the complexity*
+*Experience Google Meet-like functionality with your own Python server*
