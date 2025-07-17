@@ -782,9 +782,10 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
         if user_id:
             self.users[user_id] = {'name': name, 'joined_at': time.time()}
             
-            # First user becomes presenter
-            if not self.current_presenter:
+            # First user becomes presenter, or if current presenter left
+            if not self.current_presenter or self.current_presenter not in self.users:
                 self.current_presenter = user_id
+                print(f"User {name} ({user_id}) is now the presenter")
         
         self.send_json_response({'success': True})
     
@@ -810,9 +811,18 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
         user_id = data.get('userId')
         
         if user_id and user_id in self.users:
-            # Simple presenter assignment - first come, first served
-            if not self.current_presenter or self.current_presenter not in self.users:
-                self.current_presenter = user_id
+            # Transfer presenter role to requesting user
+            old_presenter = self.current_presenter
+            self.current_presenter = user_id
+            user_name = self.users[user_id]['name']
+            print(f"Presenter role transferred from {old_presenter} to {user_name} ({user_id})")
+            
+            # Add a system message about presenter change
+            self.chat_messages.append({
+                'user': 'System',
+                'text': f'{user_name} is now the presenter',
+                'timestamp': time.time()
+            })
         
         self.send_json_response({'success': True})
     

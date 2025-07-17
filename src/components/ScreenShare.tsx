@@ -89,6 +89,12 @@ export default function ScreenShare() {
       const data = await response.json();
       setUsers(data.users);
       setCurrentPresenter(data.presenter);
+      
+      // Debug logging
+      console.log('Users:', data.users);
+      console.log('Current presenter:', data.presenter);
+      console.log('My user ID:', userId);
+      console.log('Am I presenter?', data.presenter === userId);
     } catch (error) {
       // Silently handle errors during polling
     }
@@ -292,7 +298,7 @@ export default function ScreenShare() {
                 {isPresenter && !isSharing && (
                   <button
                     onClick={startSharing}
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
                   >
                     <Play className="w-4 h-4" />
                     Start Sharing
@@ -302,7 +308,7 @@ export default function ScreenShare() {
                 {isPresenter && isSharing && (
                   <button
                     onClick={stopSharing}
-                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
                   >
                     <Square className="w-4 h-4" />
                     Stop Sharing
@@ -312,12 +318,21 @@ export default function ScreenShare() {
                 {!isPresenter && (
                   <button
                     onClick={requestPresenter}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
                   >
                     <Hand className="w-4 h-4" />
                     Request Presenter
                   </button>
                 )}
+              </div>
+              
+              {/* Debug Info */}
+              <div className="mt-4 p-3 bg-gray-100 rounded-lg text-xs text-gray-600">
+                <div>My ID: {userId}</div>
+                <div>Current Presenter: {currentPresenter || 'None'}</div>
+                <div>Am I Presenter: {isPresenter ? 'Yes' : 'No'}</div>
+                <div>Connected Users: {Object.keys(users).length}</div>
+                <div>Is Sharing: {isSharing ? 'Yes' : 'No'}</div>
               </div>
             </div>
           </div>
