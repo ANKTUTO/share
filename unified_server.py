@@ -874,57 +874,79 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
     def handle_frame_upload(self):
         """Handle frame upload from browser screen sharing"""
         try:
-            # Parse multipart form data
             content_type = self.headers.get('Content-Type', '')
             if 'multipart/form-data' not in content_type:
                 self.send_error(400, "Expected multipart/form-data")
                 return
             
-            # Get boundary
-            boundary = content_type.split('boundary=')[1].encode()
+            # Extract boundary from content type
+            boundary_match = content_type.split('boundary=')
+            if len(boundary_match) < 2:
+                self.send_error(400, "No boundary found in Content-Type")
+                return
+                
+            boundary = boundary_match[1].encode()
             content_length = int(self.headers.get('Content-Length', 0))
             
-            # Read the entire request body
+            if content_length == 0:
+                self.send_error(400, "No content")
+                return
+                
             body = self.rfile.read(content_length)
             
-            # Parse multipart data
+            # Split by boundary
             parts = body.split(b'--' + boundary)
             
             frame_data = None
             user_id = None
             
             for part in parts:
+                if len(part) < 10:  # Skip empty or very small parts
+                    continue
+                    
                 if b'Content-Disposition: form-data; name="frame"' in part:
-                    # Extract frame data
                     header_end = part.find(b'\r\n\r\n')
                     if header_end != -1:
                         frame_data = part[header_end + 4:]
-                        # Remove trailing boundary markers
-                        if frame_data.endswith(b'\r\n'):
+                        # Clean up frame data
+                        while frame_data.endswith(b'\r\n') or frame_data.endswith(b'\n') or frame_data.endswith(b'\r'):
                             frame_data = frame_data[:-2]
+                            if len(frame_data) == 0:
+                                break
                 
                 elif b'Content-Disposition: form-data; name="userId"' in part:
-                    # Extract user ID
                     header_end = part.find(b'\r\n\r\n')
                     if header_end != -1:
-                        user_id = part[header_end + 4:].decode('utf-8').strip()
-                        if user_id.endswith('\r\n'):
-                            user_id = user_id[:-2]
+                        user_data = part[header_end + 4:]
+                        # Clean up user ID
+                        while user_data.endswith(b'\r\n') or user_data.endswith(b'\n') or user_data.endswith(b'\r'):
+                            user_data = user_data[:-2]
+                            if len(user_data) == 0:
+                                break
+                        user_id = user_data.decode('utf-8').strip()
             
-            if frame_data and user_id:
-                # Store the frame
+            if frame_data and user_id and len(frame_data) > 100:  # Ensure we have actual image data
                 with self.frame_lock:
                     self.current_frame = frame_data
                 
-                # Update current sharer
-                self.current_presenter = user_id
+                # Only update presenter if this user is actually the current presenter
+                if self.current_presenter == user_id:
+                    pass  # Frame accepted
+                else:
+                    # This user is not the current presenter, ignore frame
+                    pass
                 
                 self.send_json_response({'success': True})
+                print(f"Frame received from {user_id}, size: {len(frame_data)} bytes")
             else:
-                self.send_error(400, "Missing frame data or user ID")
+                error_msg = f"Invalid frame data: frame_size={len(frame_data) if frame_data else 0}, user_id={user_id}"
+                print(error_msg)
+                self.send_error(400, error_msg)
                 
         except Exception as e:
             print(f"Error handling frame upload: {e}")
+            import traceback
+            traceback.print_exc()
             self.send_error(500, str(e))
     
     def screen_capture_loop(self):
