@@ -1,21 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Monitor, 
-  Users, 
-  MessageCircle, 
-  Settings, 
-  Play, 
-  Square, 
-  Send,
-  Maximize,
-  Wifi,
-  WifiOff,
-  User,
-  X,
-  Chrome,
-  Window as WindowIcon,
-  MonitorSpeaker
-} from 'lucide-react';
+import { Monitor, Users, MessageCircle, Settings, Play, Square, Send, Maximize, Wifi, WifiOff, User, X, Chrome, AppWindow as WindowIcon, MonitorSpeaker } from 'lucide-react';
 
 interface User {
   name: string;
