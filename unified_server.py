@@ -757,8 +757,10 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
         self.send_json_response({'messages': self.chat_messages})
     
     def serve_frame(self):
+        print(f"🖼️ Frame request received")
         with self.frame_lock:
             if self.current_frame:
+                print(f"✅ Serving frame: {len(self.current_frame)} bytes")
                 self.send_response(200)
                 self.send_header('Content-Type', 'image/jpeg')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -768,6 +770,7 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(self.current_frame)
             else:
+                print(f"⚠️ No frame available")
                 self.send_response(204)  # No content
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
@@ -834,10 +837,12 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
     
     def handle_start_sharing(self, data):
         user_id = data.get('userId')
+        print(f"🎬 Start sharing request from: {user_id}")
         
         if user_id:
             # Set as current presenter when they start sharing
             self.current_presenter = user_id
+            print(f"👑 Set presenter to: {user_id}")
             
             # Add system message
             user_name = self.users.get(user_id, {}).get('name', 'Unknown')
@@ -846,16 +851,24 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
                 'text': f'{user_name} started sharing their screen',
                 'timestamp': time.time()
             })
+            print(f"💬 Added system message: {user_name} started sharing")
         
         self.send_json_response({'success': True})
     
     def handle_stop_sharing(self, data):
         user_id = data.get('userId')
+        print(f"🛑 Stop sharing request from: {user_id}")
         
         if user_id:
             # Clear presenter if this user was sharing
             if self.current_presenter == user_id:
                 self.current_presenter = None
+                print(f"👑 Cleared presenter (was: {user_id})")
+                
+                # Clear current frame when stopping
+                with self.frame_lock:
+                    self.current_frame = None
+                    print(f"🗑️ Cleared current frame")
                 
             # Add system message
             user_name = self.users.get(user_id, {}).get('name', 'Unknown')
@@ -864,6 +877,7 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
                 'text': f'{user_name} stopped sharing their screen',
                 'timestamp': time.time()
             })
+            print(f"💬 Added system message: {user_name} stopped sharing")
         
         self.send_json_response({'success': True})
     
@@ -873,29 +887,38 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
     
     def handle_frame_upload(self):
         """Handle frame upload from browser screen sharing"""
+        print(f"📤 Received frame upload request")
         try:
             content_type = self.headers.get('Content-Type', '')
+            print(f"📋 Content-Type: {content_type}")
             if 'multipart/form-data' not in content_type:
+                print(f"❌ Invalid content type: {content_type}")
                 self.send_error(400, "Expected multipart/form-data")
                 return
             
             # Extract boundary from content type
             boundary_match = content_type.split('boundary=')
             if len(boundary_match) < 2:
+                print(f"❌ No boundary found in Content-Type")
                 self.send_error(400, "No boundary found in Content-Type")
                 return
                 
             boundary = boundary_match[1].encode()
+            print(f"🔗 Boundary: {boundary}")
             content_length = int(self.headers.get('Content-Length', 0))
+            print(f"📏 Content length: {content_length}")
             
             if content_length == 0:
+                print(f"❌ No content received")
                 self.send_error(400, "No content")
                 return
                 
             body = self.rfile.read(content_length)
+            print(f"📦 Read body: {len(body)} bytes")
             
             # Split by boundary
             parts = body.split(b'--' + boundary)
+            print(f"🧩 Split into {len(parts)} parts")
             
             frame_data = None
             user_id = None
@@ -913,6 +936,7 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
                             frame_data = frame_data[:-2]
                             if len(frame_data) == 0:
                                 break
+                        print(f"🖼️ Found frame data: {len(frame_data)} bytes")
                 
                 elif b'Content-Disposition: form-data; name="userId"' in part:
                     header_end = part.find(b'\r\n\r\n')
@@ -924,27 +948,28 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
                             if len(user_data) == 0:
                                 break
                         user_id = user_data.decode('utf-8').strip()
+                        print(f"👤 Found user ID: {user_id}")
             
             if frame_data and user_id and len(frame_data) > 100:  # Ensure we have actual image data
+                print(f"✅ Valid frame from {user_id}: {len(frame_data)} bytes")
                 with self.frame_lock:
                     self.current_frame = frame_data
+                    print(f"💾 Stored frame in memory")
                 
                 # Only update presenter if this user is actually the current presenter
                 if self.current_presenter == user_id:
-                    pass  # Frame accepted
+                    print(f"✅ Frame accepted from current presenter: {user_id}")
                 else:
-                    # This user is not the current presenter, ignore frame
-                    pass
+                    print(f"⚠️ Frame from non-presenter {user_id}, current presenter: {self.current_presenter}")
                 
                 self.send_json_response({'success': True})
-                print(f"Frame received from {user_id}, size: {len(frame_data)} bytes")
             else:
                 error_msg = f"Invalid frame data: frame_size={len(frame_data) if frame_data else 0}, user_id={user_id}"
-                print(error_msg)
+                print(f"❌ {error_msg}")
                 self.send_error(400, error_msg)
                 
         except Exception as e:
-            print(f"Error handling frame upload: {e}")
+            print(f"❌ Error handling frame upload: {e}")
             import traceback
             traceback.print_exc()
             self.send_error(500, str(e))

@@ -19,7 +19,14 @@ interface ScreenShareSettings {
 }
 
 export default function ScreenShare() {
-  const [userId] = useState(() => 'user_' + Math.random().toString(36).substr(2, 9));
+  console.log('🚀 ScreenShare component rendered');
+  
+  const [userId] = useState(() => {
+    const id = 'user_' + Math.random().toString(36).substr(2, 9);
+    console.log('👤 Generated userId:', id);
+    return id;
+  });
+  
   const [users, setUsers] = useState<Record<string, User>>({});
   const [currentSharer, setCurrentSharer] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -45,8 +52,20 @@ export default function ScreenShare() {
   const amISharing = currentSharer === userId;
   const amIPresenter = currentSharer === userId || !currentSharer;
 
-  // API calls
+  console.log('📊 Current state:', {
+    userId,
+    userName,
+    isConnected,
+    isSharing,
+    amISharing,
+    amIPresenter,
+    currentSharer,
+    userCount: Object.keys(users).length
+  });
+
+  // API calls with extensive logging
   const apiCall = async (endpoint: string, options?: RequestInit) => {
+    console.log(`🌐 API Call: ${endpoint}`, options);
     try {
       const response = await fetch(`http://localhost:8080${endpoint}`, {
         ...options,
@@ -55,15 +74,17 @@ export default function ScreenShare() {
           ...options?.headers,
         },
       });
+      console.log(`✅ API Response: ${endpoint}`, response.status, response.ok);
       return response;
     } catch (error) {
-      console.error(`API call failed for ${endpoint}:`, error);
+      console.error(`❌ API call failed for ${endpoint}:`, error);
       setIsConnected(false);
       throw error;
     }
   };
 
   const joinRoom = async () => {
+    console.log('🚪 Joining room...');
     try {
       const response = await apiCall('/api/join', {
         method: 'POST',
@@ -71,10 +92,13 @@ export default function ScreenShare() {
       });
       
       if (response.ok) {
+        console.log('✅ Successfully joined room');
         setIsConnected(true);
+      } else {
+        console.error('❌ Failed to join room:', response.status);
       }
     } catch (error) {
-      console.error('Failed to join room:', error);
+      console.error('❌ Join room error:', error);
     }
   };
 
@@ -82,10 +106,11 @@ export default function ScreenShare() {
     try {
       const response = await apiCall('/api/users');
       const data = await response.json();
+      console.log('👥 Users updated:', data);
       setUsers(data.users);
       setCurrentSharer(data.presenter);
     } catch (error) {
-      // Silently handle errors during polling
+      console.error('❌ Update users error:', error);
     }
   };
 
@@ -93,25 +118,55 @@ export default function ScreenShare() {
     try {
       const response = await apiCall('/api/messages');
       const data = await response.json();
+      console.log('💬 Messages updated:', data.messages.length, 'messages');
       setMessages(data.messages);
     } catch (error) {
-      // Silently handle errors during polling
+      console.error('❌ Update messages error:', error);
     }
   };
 
   const captureAndSendFrame = () => {
-    if (!streamRef.current || !canvasRef.current || !isSharing || !videoRef.current) return;
+    console.log('🎥 Starting frame capture...');
+    if (!streamRef.current || !canvasRef.current || !isSharing || !videoRef.current) {
+      console.warn('⚠️ Cannot capture frame - missing requirements:', {
+        hasStream: !!streamRef.current,
+        hasCanvas: !!canvasRef.current,
+        isSharing,
+        hasVideo: !!videoRef.current
+      });
+      return;
+    }
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     const video = videoRef.current;
     
+    if (!ctx) {
+      console.error('❌ Cannot get canvas context');
+      return;
+    }
+
+    let frameCount = 0;
+    
     const sendFrame = () => {
-      if (!isSharing || !streamRef.current || !video.videoWidth || video.readyState < 2) return;
+      if (!isSharing || !streamRef.current || !video.videoWidth || video.readyState < 2) {
+        console.warn('⚠️ Skipping frame - not ready:', {
+          isSharing,
+          hasStream: !!streamRef.current,
+          videoWidth: video.videoWidth,
+          readyState: video.readyState
+        });
+        return;
+      }
 
       try {
+        frameCount++;
+        console.log(`📸 Capturing frame #${frameCount}`, {
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+          readyState: video.readyState
+        });
+
         // Set canvas dimensions to match video
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -122,30 +177,44 @@ export default function ScreenShare() {
         // Convert canvas to blob and send to server
         canvas.toBlob(async (blob) => {
           if (blob && isSharing) {
+            console.log(`📤 Sending frame #${frameCount}, size: ${blob.size} bytes`);
+            
             const formData = new FormData();
             formData.append('frame', blob);
             formData.append('userId', userId);
 
             try {
-              await fetch('http://localhost:8080/api/frame', {
+              const response = await fetch('http://localhost:8080/api/frame', {
                 method: 'POST',
                 body: formData
               });
+              
+              if (response.ok) {
+                console.log(`✅ Frame #${frameCount} sent successfully`);
+              } else {
+                console.error(`❌ Frame #${frameCount} failed:`, response.status);
+              }
             } catch (error) {
-              console.error('Failed to send frame:', error);
+              console.error(`❌ Failed to send frame #${frameCount}:`, error);
             }
+          } else {
+            console.warn(`⚠️ Skipping frame #${frameCount} - no blob or not sharing`);
           }
         }, 'image/jpeg', settings.quality / 100);
       } catch (error) {
-        console.error('Failed to capture frame:', error);
+        console.error(`❌ Failed to capture frame #${frameCount}:`, error);
       }
     };
 
     // Start frame capture interval
-    frameIntervalRef.current = setInterval(sendFrame, 1000 / settings.fps);
+    const intervalMs = 1000 / settings.fps;
+    console.log(`⏱️ Starting frame interval: ${intervalMs}ms (${settings.fps} FPS)`);
+    frameIntervalRef.current = setInterval(sendFrame, intervalMs);
   };
 
   const startSharing = async (sourceType: 'tab' | 'window' | 'screen' = 'screen') => {
+    console.log(`🎬 Starting screen sharing - type: ${sourceType}`);
+    
     try {
       let constraints: any = {
         video: {
@@ -156,37 +225,41 @@ export default function ScreenShare() {
         audio: true
       };
 
-      // Configure constraints based on source type
-      if (sourceType === 'screen') {
-        constraints.video.mediaSource = 'screen';
-      } else if (sourceType === 'window') {
-        constraints.video.mediaSource = 'window';
-      } else if (sourceType === 'tab') {
-        constraints.video.mediaSource = 'tab';
-      }
-
-      console.log('Requesting screen share with constraints:', constraints);
+      console.log('🎯 Media constraints:', constraints);
 
       // Get screen share stream from browser
       const stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      console.log('✅ Got display media stream:', stream);
+      console.log('📺 Stream tracks:', stream.getTracks().map(t => ({ kind: t.kind, label: t.label })));
 
       streamRef.current = stream;
       
       if (videoRef.current) {
+        console.log('🎥 Setting video source...');
         videoRef.current.srcObject = stream;
         videoRef.current.muted = true;
         
         // Wait for video to be ready
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
           if (videoRef.current) {
             videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play().then(resolve).catch(resolve);
+              console.log('✅ Video metadata loaded');
+              videoRef.current?.play().then(() => {
+                console.log('▶️ Video playing');
+                resolve(true);
+              }).catch(reject);
+            };
+            
+            videoRef.current.onerror = (e) => {
+              console.error('❌ Video error:', e);
+              reject(e);
             };
           }
         });
       }
 
       // Notify server that we're sharing
+      console.log('📡 Notifying server about sharing...');
       await apiCall('/api/start_sharing', {
         method: 'POST',
         body: JSON.stringify({ userId })
@@ -194,21 +267,22 @@ export default function ScreenShare() {
 
       setIsSharing(true);
       setShowShareModal(false);
+      console.log('✅ Screen sharing started successfully');
 
       // Start capturing and sending frames after a short delay
       setTimeout(() => {
+        console.log('⏰ Starting frame capture after delay...');
         captureAndSendFrame();
       }, 1000);
 
       // Handle stream end (when user stops sharing via browser)
       stream.getVideoTracks()[0].addEventListener('ended', () => {
+        console.log('🛑 Stream ended by user');
         stopSharing();
       });
 
-      console.log('Screen sharing started successfully');
-
     } catch (error) {
-      console.error('Failed to start screen sharing:', error);
+      console.error('❌ Failed to start screen sharing:', error);
       if (error instanceof Error && error.name === 'NotAllowedError') {
         alert('Screen sharing permission denied. Please allow screen sharing and try again.');
       } else if (error instanceof Error && error.name === 'NotSupportedError') {
@@ -221,26 +295,28 @@ export default function ScreenShare() {
   };
 
   const stopSharing = async () => {
+    console.log('🛑 Stopping screen share...');
+    
     try {
-      console.log('Stopping screen share...');
-      
       // Stop the media stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => {
           track.stop();
-          console.log('Stopped track:', track.kind);
+          console.log('🛑 Stopped track:', track.kind);
         });
         streamRef.current = null;
       }
 
       if (videoRef.current) {
         videoRef.current.srcObject = null;
+        console.log('🎥 Cleared video source');
       }
 
       // Clear frame interval
       if (frameIntervalRef.current) {
         clearInterval(frameIntervalRef.current);
         frameIntervalRef.current = undefined;
+        console.log('⏹️ Cleared frame interval');
       }
 
       // Notify server that we stopped sharing
@@ -250,15 +326,16 @@ export default function ScreenShare() {
       });
 
       setIsSharing(false);
-      console.log('Screen sharing stopped successfully');
+      console.log('✅ Screen sharing stopped successfully');
     } catch (error) {
-      console.error('Failed to stop sharing:', error);
+      console.error('❌ Failed to stop sharing:', error);
     }
   };
 
   const sendMessage = async () => {
     if (!messageInput.trim()) return;
     
+    console.log('💬 Sending message:', messageInput);
     try {
       await apiCall('/api/message', {
         method: 'POST',
@@ -269,13 +346,15 @@ export default function ScreenShare() {
         })
       });
       setMessageInput('');
+      console.log('✅ Message sent successfully');
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('❌ Failed to send message:', error);
     }
   };
 
   const updateSettings = async (newSettings: Partial<ScreenShareSettings>) => {
     const updatedSettings = { ...settings, ...newSettings };
+    console.log('⚙️ Updating settings:', updatedSettings);
     setSettings(updatedSettings);
     
     try {
@@ -283,12 +362,14 @@ export default function ScreenShare() {
         method: 'POST',
         body: JSON.stringify(updatedSettings)
       });
+      console.log('✅ Settings updated successfully');
     } catch (error) {
-      console.error('Failed to update settings:', error);
+      console.error('❌ Failed to update settings:', error);
     }
   };
 
   const toggleFullscreen = () => {
+    console.log('🖥️ Toggling fullscreen');
     const element = sharedImageRef.current || videoRef.current;
     if (element) {
       if (!document.fullscreenElement) {
@@ -307,21 +388,25 @@ export default function ScreenShare() {
         if (response.ok) {
           const blob = await response.blob();
           if (blob.size > 0) {
+            console.log('🖼️ Loaded shared screen frame:', blob.size, 'bytes');
             const url = URL.createObjectURL(blob);
             sharedImageRef.current.src = url;
             sharedImageRef.current.style.display = 'block';
             
             // Clean up previous URL after a delay
             setTimeout(() => URL.revokeObjectURL(url), 1000);
+          } else {
+            console.log('⚠️ Empty frame received');
           }
         }
       } catch (error) {
-        // Silently handle frame loading errors
+        console.error('❌ Failed to load shared screen:', error);
       }
     }
   };
 
   const openShareModal = () => {
+    console.log('📱 Opening share modal');
     setShowShareModal(true);
   };
 
@@ -353,12 +438,17 @@ export default function ScreenShare() {
 
   // Effects
   useEffect(() => {
+    console.log('🔄 Component mounted, joining room...');
     joinRoom();
   }, []);
 
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected) {
+      console.log('⚠️ Not connected, skipping polling');
+      return;
+    }
 
+    console.log('⏰ Starting polling intervals...');
     const pollInterval = setInterval(() => {
       updateUsers();
       updateMessages();
@@ -368,6 +458,7 @@ export default function ScreenShare() {
     }, 500); // Faster polling for better real-time experience
 
     return () => {
+      console.log('🛑 Clearing polling interval');
       clearInterval(pollInterval);
     };
   }, [isConnected, isSharing]);
@@ -381,6 +472,7 @@ export default function ScreenShare() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      console.log('🧹 Component unmounting, cleaning up...');
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -447,6 +539,9 @@ export default function ScreenShare() {
                     muted
                     playsInline
                     className="max-w-full max-h-[500px] object-contain"
+                    onLoadedMetadata={() => console.log('🎥 Video metadata loaded')}
+                    onPlay={() => console.log('▶️ Video started playing')}
+                    onError={(e) => console.error('❌ Video error:', e)}
                   />
                 ) : currentSharer ? (
                   // Show shared screen from server when someone else is sharing
@@ -455,6 +550,8 @@ export default function ScreenShare() {
                     className="max-w-full max-h-[500px] object-contain"
                     alt="Shared screen"
                     style={{ display: 'none' }}
+                    onLoad={() => console.log('🖼️ Shared image loaded')}
+                    onError={(e) => console.error('❌ Shared image error:', e)}
                   />
                 ) : (
                   // Show placeholder when no one is sharing
@@ -624,7 +721,10 @@ export default function ScreenShare() {
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800">Choose what to share</h2>
                 <button
-                  onClick={() => setShowShareModal(false)}
+                  onClick={() => {
+                    console.log('❌ Closing share modal');
+                    setShowShareModal(false);
+                  }}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -638,7 +738,10 @@ export default function ScreenShare() {
             {/* Tab Navigation */}
             <div className="flex border-b border-gray-200">
               <button
-                onClick={() => setShareTab('tab')}
+                onClick={() => {
+                  console.log('📑 Selected tab sharing');
+                  setShareTab('tab');
+                }}
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   shareTab === 'tab'
                     ? 'border-blue-500 text-blue-600'
@@ -648,7 +751,10 @@ export default function ScreenShare() {
                 Chrome Tab
               </button>
               <button
-                onClick={() => setShareTab('window')}
+                onClick={() => {
+                  console.log('🪟 Selected window sharing');
+                  setShareTab('window');
+                }}
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   shareTab === 'window'
                     ? 'border-blue-500 text-blue-600'
@@ -658,7 +764,10 @@ export default function ScreenShare() {
                 Window
               </button>
               <button
-                onClick={() => setShareTab('screen')}
+                onClick={() => {
+                  console.log('🖥️ Selected screen sharing');
+                  setShareTab('screen');
+                }}
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   shareTab === 'screen'
                     ? 'border-blue-500 text-blue-600'
@@ -673,7 +782,10 @@ export default function ScreenShare() {
             <div className="p-6">
               <div className="grid grid-cols-1 gap-4">
                 <button
-                  onClick={() => startSharing(shareTab)}
+                  onClick={() => {
+                    console.log(`🎯 Starting sharing with type: ${shareTab}`);
+                    startSharing(shareTab);
+                  }}
                   className="p-6 border-2 border-gray-200 hover:border-blue-300 rounded-lg transition-all hover:shadow-md text-left"
                 >
                   <div className="flex items-center gap-4">
@@ -690,7 +802,10 @@ export default function ScreenShare() {
             {/* Modal Footer */}
             <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
               <button
-                onClick={() => setShowShareModal(false)}
+                onClick={() => {
+                  console.log('❌ Cancelled sharing');
+                  setShowShareModal(false);
+                }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
               >
                 Cancel
