@@ -239,6 +239,9 @@ export default function ScreenShare() {
             <div className="flex items-center gap-3">
               <Monitor className="w-8 h-8 text-indigo-600" />
               <h1 className="text-2xl font-bold text-gray-800">Screen Share Pro</h1>
+              <div className="ml-4 px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium">
+                {userName}
+              </div>
             </div>
             
             <div className="flex items-center gap-6">
@@ -256,9 +259,9 @@ export default function ScreenShare() {
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-600">Role:</span>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  isPresenter ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  currentPresenter === userId ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                 }`}>
-                  {isPresenter ? 'Presenter' : 'Viewer'}
+                  {currentPresenter === userId ? 'Sharing' : 'Viewer'}
                 </span>
               </div>
               
@@ -295,7 +298,7 @@ export default function ScreenShare() {
               
               {/* Controls */}
               <div className="flex gap-3 mt-6">
-                {isPresenter && !isSharing && (
+                {!isSharing && (
                   <button
                     onClick={startSharing}
                     className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
@@ -305,7 +308,7 @@ export default function ScreenShare() {
                   </button>
                 )}
                 
-                {isPresenter && isSharing && (
+                {isSharing && (
                   <button
                     onClick={stopSharing}
                     className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
@@ -314,23 +317,12 @@ export default function ScreenShare() {
                     Stop Sharing
                   </button>
                 )}
-                
-                {!isPresenter && (
-                  <button
-                    onClick={requestPresenter}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
-                  >
-                    <Hand className="w-4 h-4" />
-                    Request Presenter
-                  </button>
-                )}
               </div>
               
               {/* Debug Info */}
               <div className="mt-4 p-3 bg-gray-100 rounded-lg text-xs text-gray-600">
                 <div>My ID: {userId}</div>
-                <div>Current Presenter: {currentPresenter || 'None'}</div>
-                <div>Am I Presenter: {isPresenter ? 'Yes' : 'No'}</div>
+                <div>Currently Sharing: {currentPresenter ? users[currentPresenter]?.name || 'Unknown' : 'None'}</div>
                 <div>Connected Users: {Object.keys(users).length}</div>
                 <div>Is Sharing: {isSharing ? 'Yes' : 'No'}</div>
               </div>
@@ -352,7 +344,7 @@ export default function ScreenShare() {
                     <span className="text-sm text-gray-700">{user.name}</span>
                     {id === currentPresenter && (
                       <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                        Presenter
+                        Sharing
                       </span>
                     )}
                   </div>
