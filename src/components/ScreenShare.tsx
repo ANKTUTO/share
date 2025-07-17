@@ -10,7 +10,11 @@ import {
   Maximize,
   Wifi,
   WifiOff,
-  User
+  User,
+  X,
+  Chrome,
+  Window as WindowIcon,
+  MonitorSpeaker
 } from 'lucide-react';
 
 interface User {
@@ -30,6 +34,13 @@ interface ScreenShareSettings {
   monitor: number;
 }
 
+interface ShareSource {
+  id: string;
+  name: string;
+  type: 'screen' | 'window' | 'tab';
+  thumbnail?: string;
+}
+
 export default function ScreenShare() {
   const [userId] = useState(() => 'user_' + Math.random().toString(36).substr(2, 9));
   const [users, setUsers] = useState<Record<string, User>>({});
@@ -38,6 +49,10 @@ export default function ScreenShare() {
   const [messageInput, setMessageInput] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareTab, setShareTab] = useState<'tab' | 'window' | 'screen'>('screen');
+  const [availableSources, setAvailableSources] = useState<ShareSource[]>([]);
+  const [selectedSource, setSelectedSource] = useState<ShareSource | null>(null);
   const [settings, setSettings] = useState<ScreenShareSettings>({
     fps: 30,
     quality: 85,
@@ -48,11 +63,11 @@ export default function ScreenShare() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number>();
-  const intervalRef = useRef<NodeJS.Timeout>();
+  const frameIntervalRef = useRef<NodeJS.Timeout>();
   
   const userName = `User ${userId.slice(-4)}`;
   const amISharing = currentSharer === userId;
+  const amIPresenter = currentSharer === userId || !currentSharer;
 
   // API calls
   const apiCall = async (endpoint: string, options?: RequestInit) => {
@@ -108,7 +123,55 @@ export default function ScreenShare() {
     }
   };
 
-  const captureAndSendFrame = async () => {
+  const getAvailableSources = async () => {
+    try {
+      // Get available media sources
+      const sources = await (navigator.mediaDevices as any).getDisplayMedia({
+        video: true,
+        audio: true,
+        systemAudio: 'include'
+      }).then((stream: MediaStream) => {
+        // Stop the stream immediately as we just wanted to trigger permission
+        stream.getTracks().forEach(track => track.stop());
+        return [];
+      }).catch(() => []);
+
+      // For demo purposes, create mock sources
+      const mockSources: ShareSource[] = [
+        {
+          id: 'screen-1',
+          name: 'Entire Screen',
+          type: 'screen'
+        },
+        {
+          id: 'window-1',
+          name: 'Chrome Browser',
+          type: 'window'
+        },
+        {
+          id: 'window-2',
+          name: 'VS Code',
+          type: 'window'
+        },
+        {
+          id: 'tab-1',
+          name: 'Screen Share Pro',
+          type: 'tab'
+        },
+        {
+          id: 'tab-2',
+          name: 'Google Meet',
+          type: 'tab'
+        }
+      ];
+
+      setAvailableSources(mockSources);
+    } catch (error) {
+      console.error('Failed to get available sources:', error);
+    }
+  };
+
+  const captureAndSendFrame = () => {
     if (!streamRef.current || !canvasRef.current || !isSharing || !videoRef.current) return;
 
     const canvas = canvasRef.current;
@@ -121,7 +184,7 @@ export default function ScreenShare() {
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
 
-    const captureFrame = () => {
+    const sendFrame = () => {
       if (!isSharing || !streamRef.current || !video.videoWidth) return;
 
       try {
@@ -148,33 +211,34 @@ export default function ScreenShare() {
       } catch (error) {
         console.error('Failed to capture frame:', error);
       }
-
-      // Schedule next frame
-      if (isSharing) {
-        setTimeout(captureFrame, 1000 / settings.fps);
-      }
     };
 
-    // Start capturing frames once video is ready
-    if (video.readyState >= 2) {
-      captureFrame();
-    } else {
-      video.addEventListener('loadeddata', captureFrame, { once: true });
-    }
+    // Start frame capture interval
+    frameIntervalRef.current = setInterval(sendFrame, 1000 / settings.fps);
   };
 
-  const startSharing = async () => {
+  const startSharing = async (source?: ShareSource) => {
     try {
-      // Get screen share stream from browser
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      let constraints: any = {
         video: {
-          mediaSource: 'screen',
           width: { ideal: 1920 },
           height: { ideal: 1080 },
           frameRate: { ideal: settings.fps }
         },
         audio: true
-      });
+      };
+
+      // Configure constraints based on source type
+      if (source?.type === 'screen') {
+        constraints.video.mediaSource = 'screen';
+      } else if (source?.type === 'window') {
+        constraints.video.mediaSource = 'window';
+      } else if (source?.type === 'tab') {
+        constraints.video.mediaSource = 'tab';
+      }
+
+      // Get screen share stream from browser
+      const stream = await navigator.mediaDevices.getDisplayMedia(constraints);
 
       streamRef.current = stream;
       
@@ -190,9 +254,16 @@ export default function ScreenShare() {
       });
 
       setIsSharing(true);
+      setShowShareModal(false);
 
-      // Start capturing and sending frames
-      setTimeout(() => captureAndSendFrame(), 1000); // Give video time to start
+      // Start capturing and sending frames after video is ready
+      setTimeout(() => {
+        if (videoRef.current && videoRef.current.readyState >= 2) {
+          captureAndSendFrame();
+        } else {
+          videoRef.current?.addEventListener('loadeddata', captureAndSendFrame, { once: true });
+        }
+      }, 1000);
 
       // Handle stream end (when user stops sharing via browser)
       stream.getVideoTracks()[0].addEventListener('ended', () => {
@@ -201,7 +272,12 @@ export default function ScreenShare() {
 
     } catch (error) {
       console.error('Failed to start screen sharing:', error);
-      alert('Screen sharing failed. Please make sure you grant permission and try again.');
+      if (error instanceof Error && error.name === 'NotAllowedError') {
+        alert('Screen sharing permission denied. Please allow screen sharing and try again.');
+      } else {
+        alert('Screen sharing failed. Please try again.');
+      }
+      setShowShareModal(false);
     }
   };
 
@@ -217,9 +293,9 @@ export default function ScreenShare() {
         videoRef.current.srcObject = null;
       }
 
-      // Clear animation frame
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      // Clear frame interval
+      if (frameIntervalRef.current) {
+        clearInterval(frameIntervalRef.current);
       }
 
       // Notify server that we stopped sharing
@@ -287,9 +363,7 @@ export default function ScreenShare() {
           if (blob.size > 0) {
             const url = URL.createObjectURL(blob);
             
-            // Create an image element and display it directly
             if (videoRef.current) {
-              // For viewing shared content, we'll use an img element instead of video
               const img = videoRef.current as any;
               img.src = url;
               img.style.display = 'block';
@@ -302,11 +376,33 @@ export default function ScreenShare() {
       } catch (error) {
         // Silently handle frame loading errors
       }
-    } else if (!currentSharer && videoRef.current) {
+    } else if (!currentSharer && videoRef.current && !isSharing) {
       // Clear the display when no one is sharing
       videoRef.current.srcObject = null;
       (videoRef.current as any).src = '';
     }
+  };
+
+  const openShareModal = () => {
+    setShowShareModal(true);
+    getAvailableSources();
+  };
+
+  const getSourceIcon = (type: string) => {
+    switch (type) {
+      case 'screen':
+        return <MonitorSpeaker className="w-6 h-6" />;
+      case 'window':
+        return <WindowIcon className="w-6 h-6" />;
+      case 'tab':
+        return <Chrome className="w-6 h-6" />;
+      default:
+        return <Monitor className="w-6 h-6" />;
+    }
+  };
+
+  const getFilteredSources = () => {
+    return availableSources.filter(source => source.type === shareTab);
   };
 
   // Effects
@@ -342,11 +438,8 @@ export default function ScreenShare() {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+      if (frameIntervalRef.current) {
+        clearInterval(frameIntervalRef.current);
       }
     };
   }, []);
@@ -383,7 +476,7 @@ export default function ScreenShare() {
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                   isSharing ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                 }`}>
-                  {isSharing ? 'Sharing' : 'Viewer'}
+                  {isSharing ? 'Presenting' : amIPresenter ? 'Presenter' : 'Viewer'}
                 </span>
               </div>
               
@@ -421,29 +514,7 @@ export default function ScreenShare() {
                   <div className="text-gray-400 text-center">
                     <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <p className="text-lg">No screen being shared</p>
-                    <p className="text-sm mt-2">Click "Start Sharing" to share your screen</p>
-                  </div>
-                )}
-                
-                {(isSharing || currentSharer) && (
-                  <button 
-                    onClick={toggleFullscreen}
-                    className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg transition-colors"
-                  >
-                    <Maximize className="w-5 h-5" />
-                  </button>
-                )}
-              </div>
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    className="max-w-full max-h-[500px] object-contain"
-                  />
-                ) : (
-                  <div className="text-gray-400 text-center">
-                    <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                    <p className="text-lg">No screen being shared</p>
-                    <p className="text-sm mt-2">Click "Start Sharing" to share your screen</p>
+                    <p className="text-sm mt-2">Click "Present Screen" to share your screen</p>
                   </div>
                 )}
                 
@@ -461,11 +532,12 @@ export default function ScreenShare() {
               <div className="flex gap-3 mt-6">
                 {!isSharing ? (
                   <button
-                    onClick={startSharing}
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition-colors font-medium"
+                    onClick={openShareModal}
+                    disabled={!amIPresenter}
+                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg transition-colors font-medium"
                   >
-                    <Play className="w-5 h-5" />
-                    Start Sharing
+                    <MonitorSpeaker className="w-5 h-5" />
+                    Present Screen
                   </button>
                 ) : (
                   <button
@@ -473,7 +545,20 @@ export default function ScreenShare() {
                     className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors font-medium"
                   >
                     <Square className="w-5 h-5" />
-                    Stop Sharing
+                    Stop Presenting
+                  </button>
+                )}
+                
+                {!amIPresenter && (
+                  <button
+                    onClick={() => apiCall('/api/request_presenter', {
+                      method: 'POST',
+                      body: JSON.stringify({ userId })
+                    })}
+                    className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg transition-colors font-medium"
+                  >
+                    <User className="w-5 h-5" />
+                    Request Presenter
                   </button>
                 )}
               </div>
@@ -498,7 +583,7 @@ export default function ScreenShare() {
                     <span className="text-sm text-gray-700">{user.name}</span>
                     {id === currentSharer && (
                       <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                        Sharing
+                        Presenting
                       </span>
                     )}
                   </div>
@@ -583,6 +668,103 @@ export default function ScreenShare() {
           </div>
         </div>
       </div>
+
+      {/* Share Screen Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-800">Choose what to share</h2>
+                <button
+                  onClick={() => setShowShareModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mt-1">
+                The site will be able to see the contents of your screen
+              </p>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex border-b border-gray-200">
+              <button
+                onClick={() => setShareTab('tab')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  shareTab === 'tab'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Chrome Tab
+              </button>
+              <button
+                onClick={() => setShareTab('window')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  shareTab === 'window'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Window
+              </button>
+              <button
+                onClick={() => setShareTab('screen')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  shareTab === 'screen'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Entire Screen
+              </button>
+            </div>
+
+            {/* Source Selection */}
+            <div className="p-6 max-h-96 overflow-y-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {getFilteredSources().map((source) => (
+                  <button
+                    key={source.id}
+                    onClick={() => setSelectedSource(source)}
+                    className={`p-4 border-2 rounded-lg transition-all hover:shadow-md ${
+                      selectedSource?.id === source.id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="aspect-video bg-gray-100 rounded-lg mb-3 flex items-center justify-center">
+                      {getSourceIcon(source.type)}
+                    </div>
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {source.name}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => selectedSource && startSharing(selectedSource)}
+                disabled={!selectedSource}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+              >
+                Share
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
