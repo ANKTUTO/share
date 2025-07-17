@@ -56,6 +56,10 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
             self.serve_settings()
         elif path == '/api/status':
             self.serve_status()
+        elif path == '/favicon.ico':
+            # Serve a simple favicon or return 204 No Content
+            self.send_response(204)
+            self.end_headers()
         else:
             self.send_error(404)
     
