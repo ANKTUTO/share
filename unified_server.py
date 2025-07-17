@@ -771,7 +771,7 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
     
     def serve_status(self):
         self.send_json_response({
-            'sharing': self.current_frame is not None,
+            'sharing': self.current_presenter is not None,
             'presenter': self.current_presenter
         })
     
@@ -829,20 +829,17 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
     def handle_start_sharing(self, data):
         user_id = data.get('userId')
         
-        if user_id and MSS_AVAILABLE:
-            # Start screen capture in a separate thread
-            if not hasattr(self, 'capture_thread') or not self.capture_thread.is_alive():
-                self.current_presenter = user_id  # Set as current presenter when they start sharing
-                self.capture_thread = threading.Thread(target=self.screen_capture_loop, daemon=True)
-                self.capture_thread.start()
-                
-                # Add system message
-                user_name = self.users.get(user_id, {}).get('name', 'Unknown')
-                self.chat_messages.append({
-                    'user': 'System',
-                    'text': f'{user_name} started sharing their screen',
-                    'timestamp': time.time()
-                })
+        if user_id:
+            # Set as current presenter when they start sharing
+            self.current_presenter = user_id
+            
+            # Add system message
+            user_name = self.users.get(user_id, {}).get('name', 'Unknown')
+            self.chat_messages.append({
+                'user': 'System',
+                'text': f'{user_name} started sharing their screen',
+                'timestamp': time.time()
+            })
         
         self.send_json_response({'success': True})
     
@@ -850,8 +847,9 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
         user_id = data.get('userId')
         
         if user_id:
-            with self.frame_lock:
-                self.current_frame = None
+            # Clear presenter if this user was sharing
+            if self.current_presenter == user_id:
+                self.current_presenter = None
                 
             # Add system message
             user_name = self.users.get(user_id, {}).get('name', 'Unknown')

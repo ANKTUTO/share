@@ -6,11 +6,11 @@ import {
   Settings, 
   Play, 
   Square, 
-  Hand, 
   Send,
   Maximize,
   Wifi,
-  WifiOff
+  WifiOff,
+  User
 } from 'lucide-react';
 
 interface User {
@@ -33,7 +33,7 @@ interface ScreenShareSettings {
 export default function ScreenShare() {
   const [userId] = useState(() => 'user_' + Math.random().toString(36).substr(2, 9));
   const [users, setUsers] = useState<Record<string, User>>({});
-  const [currentPresenter, setCurrentPresenter] = useState<string | null>(null);
+  const [currentSharer, setCurrentSharer] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [isConnected, setIsConnected] = useState(false);
@@ -44,11 +44,12 @@ export default function ScreenShare() {
     monitor: 0
   });
   
-  const screenFrameRef = useRef<HTMLImageElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   
-  const isPresenter = currentPresenter === userId;
   const userName = `User ${userId.slice(-4)}`;
+  const amISharing = currentSharer === userId;
 
   // API calls
   const apiCall = async (endpoint: string, options?: RequestInit) => {
@@ -88,13 +89,7 @@ export default function ScreenShare() {
       const response = await apiCall('/api/users');
       const data = await response.json();
       setUsers(data.users);
-      setCurrentPresenter(data.presenter);
-      
-      // Debug logging
-      console.log('Users:', data.users);
-      console.log('Current presenter:', data.presenter);
-      console.log('My user ID:', userId);
-      console.log('Am I presenter?', data.presenter === userId);
+      setCurrentSharer(data.presenter);
     } catch (error) {
       // Silently handle errors during polling
     }
@@ -110,61 +105,66 @@ export default function ScreenShare() {
     }
   };
 
-  const updateStatus = async () => {
-    try {
-      const response = await apiCall('/api/status');
-      const data = await response.json();
-      setIsSharing(data.sharing);
-    } catch (error) {
-      // Silently handle errors during polling
-    }
-  };
-
-  const updateFrame = async () => {
-    try {
-      const response = await apiCall('/api/frame');
-      if (response.ok) {
-        const blob = await response.blob();
-        if (blob.size > 0 && screenFrameRef.current) {
-          const url = URL.createObjectURL(blob);
-          screenFrameRef.current.src = url;
-        }
-      }
-    } catch (error) {
-      // Silently handle frame update errors
-    }
-  };
-
   const startSharing = async () => {
     try {
+      // Get screen share stream from browser
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          mediaSource: 'screen',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: settings.fps }
+        },
+        audio: true
+      });
+
+      streamRef.current = stream;
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+
+      // Notify server that we're sharing
       await apiCall('/api/start_sharing', {
         method: 'POST',
         body: JSON.stringify({ userId })
       });
+
+      setIsSharing(true);
+
+      // Handle stream end (when user stops sharing via browser)
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        stopSharing();
+      });
+
     } catch (error) {
-      console.error('Failed to start sharing:', error);
+      console.error('Failed to start screen sharing:', error);
+      alert('Screen sharing failed. Please make sure you grant permission and try again.');
     }
   };
 
   const stopSharing = async () => {
     try {
+      // Stop the media stream
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+
+      // Notify server that we stopped sharing
       await apiCall('/api/stop_sharing', {
         method: 'POST',
         body: JSON.stringify({ userId })
       });
+
+      setIsSharing(false);
     } catch (error) {
       console.error('Failed to stop sharing:', error);
-    }
-  };
-
-  const requestPresenter = async () => {
-    try {
-      await apiCall('/api/request_presenter', {
-        method: 'POST',
-        body: JSON.stringify({ userId })
-      });
-    } catch (error) {
-      console.error('Failed to request presenter:', error);
     }
   };
 
@@ -200,6 +200,16 @@ export default function ScreenShare() {
     }
   };
 
+  const toggleFullscreen = () => {
+    if (videoRef.current) {
+      if (!document.fullscreenElement) {
+        videoRef.current.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    }
+  };
+
   // Effects
   useEffect(() => {
     joinRoom();
@@ -211,16 +221,10 @@ export default function ScreenShare() {
     const pollInterval = setInterval(() => {
       updateUsers();
       updateMessages();
-      updateStatus();
     }, 1000);
-
-    const frameInterval = setInterval(() => {
-      updateFrame();
-    }, 100);
 
     return () => {
       clearInterval(pollInterval);
-      clearInterval(frameInterval);
     };
   }, [isConnected]);
 
@@ -229,6 +233,15 @@ export default function ScreenShare() {
       chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -239,7 +252,8 @@ export default function ScreenShare() {
             <div className="flex items-center gap-3">
               <Monitor className="w-8 h-8 text-indigo-600" />
               <h1 className="text-2xl font-bold text-gray-800">Screen Share Pro</h1>
-              <div className="ml-4 px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium">
+              <div className="ml-4 px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium flex items-center gap-2">
+                <User className="w-4 h-4" />
                 {userName}
               </div>
             </div>
@@ -257,11 +271,11 @@ export default function ScreenShare() {
               </div>
               
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Role:</span>
+                <span className="text-sm text-gray-600">Status:</span>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  currentPresenter === userId ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  amISharing ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                 }`}>
-                  {currentPresenter === userId ? 'Sharing' : 'Viewer'}
+                  {amISharing ? 'Sharing' : 'Viewer'}
                 </span>
               </div>
               
@@ -278,53 +292,50 @@ export default function ScreenShare() {
           <div className="lg:col-span-3">
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/20">
               <div className="relative bg-black rounded-xl overflow-hidden min-h-[400px] flex items-center justify-center">
-                {isSharing ? (
-                  <img
-                    ref={screenFrameRef}
-                    alt="Shared Screen"
+                {isSharing || currentSharer ? (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
                     className="max-w-full max-h-[500px] object-contain"
                   />
                 ) : (
                   <div className="text-gray-400 text-center">
                     <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <p className="text-lg">No screen being shared</p>
+                    <p className="text-sm mt-2">Click "Start Sharing" to share your screen</p>
                   </div>
                 )}
                 
-                <button className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg transition-colors">
-                  <Maximize className="w-5 h-5" />
-                </button>
+                {(isSharing || currentSharer) && (
+                  <button 
+                    onClick={toggleFullscreen}
+                    className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg transition-colors"
+                  >
+                    <Maximize className="w-5 h-5" />
+                  </button>
+                )}
               </div>
               
               {/* Controls */}
               <div className="flex gap-3 mt-6">
-                {!isSharing && (
+                {!isSharing ? (
                   <button
                     onClick={startSharing}
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition-colors font-medium"
                   >
-                    <Play className="w-4 h-4" />
+                    <Play className="w-5 h-5" />
                     Start Sharing
                   </button>
-                )}
-                
-                {isSharing && (
+                ) : (
                   <button
                     onClick={stopSharing}
-                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors font-medium"
                   >
-                    <Square className="w-4 h-4" />
+                    <Square className="w-5 h-5" />
                     Stop Sharing
                   </button>
                 )}
-              </div>
-              
-              {/* Debug Info */}
-              <div className="mt-4 p-3 bg-gray-100 rounded-lg text-xs text-gray-600">
-                <div>My ID: {userId}</div>
-                <div>Currently Sharing: {currentPresenter ? users[currentPresenter]?.name || 'Unknown' : 'None'}</div>
-                <div>Connected Users: {Object.keys(users).length}</div>
-                <div>Is Sharing: {isSharing ? 'Yes' : 'No'}</div>
               </div>
             </div>
           </div>
@@ -342,7 +353,7 @@ export default function ScreenShare() {
                 {Object.entries(users).map(([id, user]) => (
                   <div key={id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
                     <span className="text-sm text-gray-700">{user.name}</span>
-                    {id === currentPresenter && (
+                    {id === currentSharer && (
                       <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                         Sharing
                       </span>
@@ -399,7 +410,7 @@ export default function ScreenShare() {
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">FPS</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Target FPS</label>
                   <select
                     value={settings.fps}
                     onChange={(e) => updateSettings({ fps: parseInt(e.target.value) })}
@@ -423,17 +434,6 @@ export default function ScreenShare() {
                     onChange={(e) => updateSettings({ quality: parseInt(e.target.value) })}
                     className="w-full"
                   />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Monitor</label>
-                  <select
-                    value={settings.monitor}
-                    onChange={(e) => updateSettings({ monitor: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                  >
-                    <option value={0}>Primary Monitor</option>
-                  </select>
                 </div>
               </div>
             </div>
