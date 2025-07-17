@@ -267,11 +267,12 @@ export default function ScreenShare() {
   };
 
   const toggleFullscreen = () => {
-    if (videoRef.current) {
+    const element = videoRef.current;
+    if (element) {
       if (!document.fullscreenElement) {
-        videoRef.current.requestFullscreen();
+        element.requestFullscreen?.() || (element as any).webkitRequestFullscreen?.();
       } else {
-        document.exitFullscreen();
+        document.exitFullscreen?.() || (document as any).webkitExitFullscreen?.();
       }
     }
   };
