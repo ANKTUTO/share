@@ -888,7 +888,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Screen Share Pro - Multi-User Edition')
-    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
+    parser.add_argument('--host', default='localhost', help='Host to bind to')
     parser.add_argument('--port', type=int, default=8080, help='Port to bind to')
     parser.add_argument('--fps', type=int, default=30, help='Target FPS')
     parser.add_argument('--quality', type=int, default=85, help='JPEG quality')
