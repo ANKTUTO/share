@@ -67,28 +67,31 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         path = parsed_path.path
         
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        
-        try:
-            data = json.loads(post_data.decode('utf-8')) if post_data else {}
-        except json.JSONDecodeError:
-            data = {}
-        
-        if path == '/api/join':
-            self.handle_join(data)
-        elif path == '/api/message':
-            self.handle_message(data)
-        elif path == '/api/request_presenter':
-            self.handle_request_presenter(data)
-        elif path == '/api/start_sharing':
-            self.handle_start_sharing(data)
-        elif path == '/api/stop_sharing':
-            self.handle_stop_sharing(data)
-        elif path == '/api/settings':
-            self.handle_settings_update(data)
+        if path == '/api/frame':
+            self.handle_frame_upload()
         else:
-            self.send_error(404)
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            
+            try:
+                data = json.loads(post_data.decode('utf-8')) if post_data else {}
+            except json.JSONDecodeError:
+                data = {}
+        
+            if path == '/api/join':
+                self.handle_join(data)
+            elif path == '/api/message':
+                self.handle_message(data)
+            elif path == '/api/request_presenter':
+                self.handle_request_presenter(data)
+            elif path == '/api/start_sharing':
+                self.handle_start_sharing(data)
+            elif path == '/api/stop_sharing':
+                self.handle_stop_sharing(data)
+            elif path == '/api/settings':
+                self.handle_settings_update(data)
+            else:
+                self.send_error(404)
     
     def send_json_response(self, data, status=200):
         self.send_response(status)
@@ -864,6 +867,62 @@ class ScreenShareHandler(http.server.SimpleHTTPRequestHandler):
     def handle_settings_update(self, data):
         self.settings.update(data)
         self.send_json_response({'success': True})
+    
+    def handle_frame_upload(self):
+        """Handle frame upload from browser screen sharing"""
+        try:
+            # Parse multipart form data
+            content_type = self.headers.get('Content-Type', '')
+            if 'multipart/form-data' not in content_type:
+                self.send_error(400, "Expected multipart/form-data")
+                return
+            
+            # Get boundary
+            boundary = content_type.split('boundary=')[1].encode()
+            content_length = int(self.headers.get('Content-Length', 0))
+            
+            # Read the entire request body
+            body = self.rfile.read(content_length)
+            
+            # Parse multipart data
+            parts = body.split(b'--' + boundary)
+            
+            frame_data = None
+            user_id = None
+            
+            for part in parts:
+                if b'Content-Disposition: form-data; name="frame"' in part:
+                    # Extract frame data
+                    header_end = part.find(b'\r\n\r\n')
+                    if header_end != -1:
+                        frame_data = part[header_end + 4:]
+                        # Remove trailing boundary markers
+                        if frame_data.endswith(b'\r\n'):
+                            frame_data = frame_data[:-2]
+                
+                elif b'Content-Disposition: form-data; name="userId"' in part:
+                    # Extract user ID
+                    header_end = part.find(b'\r\n\r\n')
+                    if header_end != -1:
+                        user_id = part[header_end + 4:].decode('utf-8').strip()
+                        if user_id.endswith('\r\n'):
+                            user_id = user_id[:-2]
+            
+            if frame_data and user_id:
+                # Store the frame
+                with self.frame_lock:
+                    self.current_frame = frame_data
+                
+                # Update current sharer
+                self.current_presenter = user_id
+                
+                self.send_json_response({'success': True})
+            else:
+                self.send_error(400, "Missing frame data or user ID")
+                
+        except Exception as e:
+            print(f"Error handling frame upload: {e}")
+            self.send_error(500, str(e))
     
     def screen_capture_loop(self):
         if not MSS_AVAILABLE:
