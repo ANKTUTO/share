@@ -109,56 +109,57 @@ export default function ScreenShare() {
   };
 
   const captureAndSendFrame = async () => {
-    if (!streamRef.current || !canvasRef.current || !isSharing) return;
+    if (!streamRef.current || !canvasRef.current || !isSharing || !videoRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    try {
-      // Create a video element to capture the stream
-      const video = document.createElement('video');
-      video.srcObject = streamRef.current;
-      video.play();
+    const video = videoRef.current;
+    
+    // Set canvas dimensions to match video
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
 
-      video.onloadedmetadata = () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+    const captureFrame = () => {
+      if (!isSharing || !streamRef.current || !video.videoWidth) return;
 
-        const captureFrame = () => {
-          if (!isSharing || !streamRef.current) return;
+      try {
+        // Draw current video frame to canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-          // Draw video frame to canvas
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Convert canvas to blob and send to server
+        canvas.toBlob(async (blob) => {
+          if (blob && isSharing) {
+            const formData = new FormData();
+            formData.append('frame', blob);
+            formData.append('userId', userId);
 
-          // Convert canvas to blob and send to server
-          canvas.toBlob(async (blob) => {
-            if (blob && isSharing) {
-              const formData = new FormData();
-              formData.append('frame', blob);
-              formData.append('userId', userId);
-
-              try {
-                await fetch('http://localhost:8080/api/frame', {
-                  method: 'POST',
-                  body: formData
-                });
-              } catch (error) {
-                console.error('Failed to send frame:', error);
-              }
+            try {
+              await fetch('http://localhost:8080/api/frame', {
+                method: 'POST',
+                body: formData
+              });
+            } catch (error) {
+              console.error('Failed to send frame:', error);
             }
-          }, 'image/jpeg', settings.quality / 100);
-
-          // Schedule next frame
-          if (isSharing) {
-            setTimeout(captureFrame, 1000 / settings.fps);
           }
-        };
+        }, 'image/jpeg', settings.quality / 100);
+      } catch (error) {
+        console.error('Failed to capture frame:', error);
+      }
 
-        captureFrame();
-      };
-    } catch (error) {
-      console.error('Failed to capture frame:', error);
+      // Schedule next frame
+      if (isSharing) {
+        setTimeout(captureFrame, 1000 / settings.fps);
+      }
+    };
+
+    // Start capturing frames once video is ready
+    if (video.readyState >= 2) {
+      captureFrame();
+    } else {
+      video.addEventListener('loadeddata', captureFrame, { once: true });
     }
   };
 
@@ -179,7 +180,7 @@ export default function ScreenShare() {
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
       }
 
       // Notify server that we're sharing
@@ -191,7 +192,7 @@ export default function ScreenShare() {
       setIsSharing(true);
 
       // Start capturing and sending frames
-      captureAndSendFrame();
+      setTimeout(() => captureAndSendFrame(), 1000); // Give video time to start
 
       // Handle stream end (when user stops sharing via browser)
       stream.getVideoTracks()[0].addEventListener('ended', () => {
@@ -277,37 +278,33 @@ export default function ScreenShare() {
 
   // Load shared screen from server
   const loadSharedScreen = async () => {
-    if (currentSharer && currentSharer !== userId && videoRef.current) {
+    if (currentSharer && currentSharer !== userId) {
       try {
         const response = await fetch('http://localhost:8080/api/frame');
         if (response.ok) {
           const blob = await response.blob();
           if (blob.size > 0) {
             const url = URL.createObjectURL(blob);
-            const img = new Image();
-            img.onload = () => {
-              if (videoRef.current) {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  canvas.width = img.width;
-                  canvas.height = img.height;
-                  ctx.drawImage(img, 0, 0);
-                  
-                  // Convert canvas to video stream
-                  const stream = canvas.captureStream(settings.fps);
-                  videoRef.current.srcObject = stream;
-                  videoRef.current.play();
-                }
-              }
-              URL.revokeObjectURL(url);
-            };
-            img.src = url;
+            
+            // Create an image element and display it directly
+            if (videoRef.current) {
+              // For viewing shared content, we'll use an img element instead of video
+              const img = videoRef.current as any;
+              img.src = url;
+              img.style.display = 'block';
+              
+              // Clean up previous URL
+              setTimeout(() => URL.revokeObjectURL(url), 100);
+            }
           }
         }
       } catch (error) {
         // Silently handle frame loading errors
       }
+    } else if (!currentSharer && videoRef.current) {
+      // Clear the display when no one is sharing
+      videoRef.current.srcObject = null;
+      (videoRef.current as any).src = '';
     }
   };
 
@@ -403,7 +400,39 @@ export default function ScreenShare() {
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/20">
               <div className="relative bg-black rounded-xl overflow-hidden min-h-[400px] flex items-center justify-center">
                 {isSharing || currentSharer ? (
-                  <video
+                  <>
+                    {isSharing ? (
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        muted
+                        className="max-w-full max-h-[500px] object-contain"
+                      />
+                    ) : (
+                      <img
+                        ref={videoRef as any}
+                        className="max-w-full max-h-[500px] object-contain"
+                        alt="Shared screen"
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div className="text-gray-400 text-center">
+                    <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg">No screen being shared</p>
+                    <p className="text-sm mt-2">Click "Start Sharing" to share your screen</p>
+                  </div>
+                )}
+                
+                {(isSharing || currentSharer) && (
+                  <button 
+                    onClick={toggleFullscreen}
+                    className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg transition-colors"
+                  >
+                    <Maximize className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
                     ref={videoRef}
                     autoPlay
                     muted
