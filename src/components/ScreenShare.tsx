@@ -45,8 +45,11 @@ export default function ScreenShare() {
   });
   
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const animationFrameRef = useRef<number>();
+  const intervalRef = useRef<NodeJS.Timeout>();
   
   const userName = `User ${userId.slice(-4)}`;
   const amISharing = currentSharer === userId;
@@ -105,6 +108,60 @@ export default function ScreenShare() {
     }
   };
 
+  const captureAndSendFrame = async () => {
+    if (!streamRef.current || !canvasRef.current || !isSharing) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    try {
+      // Create a video element to capture the stream
+      const video = document.createElement('video');
+      video.srcObject = streamRef.current;
+      video.play();
+
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const captureFrame = () => {
+          if (!isSharing || !streamRef.current) return;
+
+          // Draw video frame to canvas
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          // Convert canvas to blob and send to server
+          canvas.toBlob(async (blob) => {
+            if (blob && isSharing) {
+              const formData = new FormData();
+              formData.append('frame', blob);
+              formData.append('userId', userId);
+
+              try {
+                await fetch('http://localhost:8080/api/frame', {
+                  method: 'POST',
+                  body: formData
+                });
+              } catch (error) {
+                console.error('Failed to send frame:', error);
+              }
+            }
+          }, 'image/jpeg', settings.quality / 100);
+
+          // Schedule next frame
+          if (isSharing) {
+            setTimeout(captureFrame, 1000 / settings.fps);
+          }
+        };
+
+        captureFrame();
+      };
+    } catch (error) {
+      console.error('Failed to capture frame:', error);
+    }
+  };
+
   const startSharing = async () => {
     try {
       // Get screen share stream from browser
@@ -133,6 +190,9 @@ export default function ScreenShare() {
 
       setIsSharing(true);
 
+      // Start capturing and sending frames
+      captureAndSendFrame();
+
       // Handle stream end (when user stops sharing via browser)
       stream.getVideoTracks()[0].addEventListener('ended', () => {
         stopSharing();
@@ -154,6 +214,11 @@ export default function ScreenShare() {
 
       if (videoRef.current) {
         videoRef.current.srcObject = null;
+      }
+
+      // Clear animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
       }
 
       // Notify server that we stopped sharing
@@ -210,6 +275,42 @@ export default function ScreenShare() {
     }
   };
 
+  // Load shared screen from server
+  const loadSharedScreen = async () => {
+    if (currentSharer && currentSharer !== userId && videoRef.current) {
+      try {
+        const response = await fetch('http://localhost:8080/api/frame');
+        if (response.ok) {
+          const blob = await response.blob();
+          if (blob.size > 0) {
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+              if (videoRef.current) {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+                  ctx.drawImage(img, 0, 0);
+                  
+                  // Convert canvas to video stream
+                  const stream = canvas.captureStream(settings.fps);
+                  videoRef.current.srcObject = stream;
+                  videoRef.current.play();
+                }
+              }
+              URL.revokeObjectURL(url);
+            };
+            img.src = url;
+          }
+        }
+      } catch (error) {
+        // Silently handle frame loading errors
+      }
+    }
+  };
+
   // Effects
   useEffect(() => {
     joinRoom();
@@ -221,12 +322,15 @@ export default function ScreenShare() {
     const pollInterval = setInterval(() => {
       updateUsers();
       updateMessages();
+      if (!isSharing) {
+        loadSharedScreen();
+      }
     }, 1000);
 
     return () => {
       clearInterval(pollInterval);
     };
-  }, [isConnected]);
+  }, [isConnected, isSharing]);
 
   useEffect(() => {
     if (chatMessagesRef.current) {
@@ -239,6 +343,12 @@ export default function ScreenShare() {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
     };
   }, []);
@@ -273,9 +383,9 @@ export default function ScreenShare() {
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-600">Status:</span>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  amISharing ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  isSharing ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                 }`}>
-                  {amISharing ? 'Sharing' : 'Viewer'}
+                  {isSharing ? 'Sharing' : 'Viewer'}
                 </span>
               </div>
               
@@ -337,6 +447,9 @@ export default function ScreenShare() {
                   </button>
                 )}
               </div>
+
+              {/* Hidden canvas for frame capture */}
+              <canvas ref={canvasRef} style={{ display: 'none' }} />
             </div>
           </div>
 
